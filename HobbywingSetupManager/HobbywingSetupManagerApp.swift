@@ -129,6 +129,7 @@ struct LocalWebView: UIViewRepresentable {
                         deviceKey: deviceKey,
                         outputFolder: folderURL
                     )
+                    try storeUpdatedHWLinkDatabase(from: updatedDatabase)
                     filesToWrite.append(("MyNameTxt.sqlite", try Data(contentsOf: updatedDatabase)))
                 }
 
@@ -242,6 +243,29 @@ struct LocalWebView: UIViewRepresentable {
             }
         }
 
+        private func storeUpdatedHWLinkDatabase(from exportURL: URL) throws {
+            let directory = storedDatabaseURL.deletingLastPathComponent()
+            let stagedURL = directory.appendingPathComponent("MyNameTxt.updated.sqlite")
+            let backupURL = directory.appendingPathComponent("MyNameTxt.previous.sqlite")
+            try? FileManager.default.removeItem(at: stagedURL)
+            try? FileManager.default.removeItem(at: backupURL)
+
+            try FileManager.default.copyItem(at: exportURL, to: stagedURL)
+
+            if FileManager.default.fileExists(atPath: storedDatabaseURL.path) {
+                try FileManager.default.moveItem(at: storedDatabaseURL, to: backupURL)
+            }
+
+            do {
+                try FileManager.default.moveItem(at: stagedURL, to: storedDatabaseURL)
+            } catch {
+                if FileManager.default.fileExists(atPath: backupURL.path) {
+                    try? FileManager.default.moveItem(at: backupURL, to: storedDatabaseURL)
+                }
+                throw error
+            }
+        }
+
         private func makeUpdatedHWLinkDatabase(
             profileName: String,
             deviceKey: String,
@@ -268,19 +292,21 @@ struct LocalWebView: UIViewRepresentable {
                   let selectStatement = select else {
                 throw ExportError.databaseUpdateFailed(String(cString: sqlite3_errmsg(db)))
             }
-            defer { sqlite3_finalize(selectStatement) }
             sqlite3_bind_text(selectStatement, 1, deviceKey, -1, unsafeBitCast(-1, to: sqlite3_destructor_type.self))
 
             guard sqlite3_step(selectStatement) == SQLITE_ROW else {
+                sqlite3_finalize(selectStatement)
                 throw ExportError.missingDeviceRow(deviceKey)
             }
 
             let rowID = sqlite3_column_int64(selectStatement, 0)
             guard let blob = sqlite3_column_blob(selectStatement, 1) else {
+                sqlite3_finalize(selectStatement)
                 throw ExportError.invalidNameArchive
             }
             let blobLength = Int(sqlite3_column_bytes(selectStatement, 1))
             let archiveData = Data(bytes: blob, count: blobLength)
+            sqlite3_finalize(selectStatement)
 
             let unarchiver = try NSKeyedUnarchiver(forReadingFrom: archiveData)
             unarchiver.requiresSecureCoding = false
