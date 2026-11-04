@@ -62,39 +62,68 @@ struct LocalWebView: UIViewRepresentable {
             didReceive message: WKScriptMessage
         ) {
             guard message.name == "exportFile",
-                  let payload = message.body as? [String: Any],
-                  let rawName = payload["name"] as? String,
-                  let base64 = payload["base64"] as? String,
-                  let data = Data(base64Encoded: base64, options: .ignoreUnknownCharacters),
-                  !data.isEmpty else {
+                  let payload = message.body as? [String: Any] else {
                 showExportError("Die Exportdatei konnte nicht vorbereitet werden.")
                 return
             }
 
-            let safeName = URL(fileURLWithPath: rawName).lastPathComponent
-            guard !safeName.isEmpty, safeName != ".", safeName != "/" else {
-                showExportError("Der Dateiname ist ungültig.")
+            var filesToWrite: [(name: String, data: Data)] = []
+
+            if let fileItems = payload["files"] as? [[String: Any]] {
+                for item in fileItems {
+                    guard let rawName = item["name"] as? String,
+                          let base64 = item["base64"] as? String,
+                          let data = Data(base64Encoded: base64, options: .ignoreUnknownCharacters),
+                          !data.isEmpty else {
+                        showExportError("Mindestens eine Datei im Exportpaket ist ungültig.")
+                        return
+                    }
+                    let safeName = URL(fileURLWithPath: rawName).lastPathComponent
+                    guard !safeName.isEmpty, safeName != ".", safeName != "/" else {
+                        showExportError("Ein Dateiname im Exportpaket ist ungültig.")
+                        return
+                    }
+                    filesToWrite.append((safeName, data))
+                }
+            } else if let rawName = payload["name"] as? String,
+                      let base64 = payload["base64"] as? String,
+                      let data = Data(base64Encoded: base64, options: .ignoreUnknownCharacters),
+                      !data.isEmpty {
+                let safeName = URL(fileURLWithPath: rawName).lastPathComponent
+                guard !safeName.isEmpty, safeName != ".", safeName != "/" else {
+                    showExportError("Der Dateiname ist ungültig.")
+                    return
+                }
+                filesToWrite.append((safeName, data))
+            }
+
+            guard !filesToWrite.isEmpty else {
+                showExportError("Es wurden keine gültigen Exportdateien übergeben.")
                 return
             }
 
             let folderURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("HobbywingExport-\(UUID().uuidString)", isDirectory: true)
-            let fileURL = folderURL.appendingPathComponent(safeName)
+                .appendingPathComponent("HobbywingExport-\\(UUID().uuidString)", isDirectory: true)
 
             do {
                 try FileManager.default.createDirectory(
                     at: folderURL,
                     withIntermediateDirectories: true
                 )
-                try data.write(to: fileURL, options: .atomic)
-                presentShareSheet(for: fileURL, temporaryFolder: folderURL)
+                var fileURLs: [URL] = []
+                for item in filesToWrite {
+                    let fileURL = folderURL.appendingPathComponent(item.name)
+                    try item.data.write(to: fileURL, options: .atomic)
+                    fileURLs.append(fileURL)
+                }
+                presentShareSheet(for: fileURLs, temporaryFolder: folderURL)
             } catch {
                 try? FileManager.default.removeItem(at: folderURL)
-                showExportError("Die Datei konnte nicht gespeichert werden: \(error.localizedDescription)")
+                showExportError("Die Exportdateien konnten nicht gespeichert werden: \\(error.localizedDescription)")
             }
         }
 
-        private func presentShareSheet(for fileURL: URL, temporaryFolder: URL) {
+        private func presentShareSheet(for fileURLs: [URL], temporaryFolder: URL) {
             DispatchQueue.main.async {
                 guard let presenter = self.topViewController() else {
                     self.showExportError("Das iOS-Teilen-Menü konnte nicht geöffnet werden.")
@@ -102,7 +131,7 @@ struct LocalWebView: UIViewRepresentable {
                 }
 
                 let activity = UIActivityViewController(
-                    activityItems: [fileURL],
+                    activityItems: fileURLs,
                     applicationActivities: nil
                 )
 
