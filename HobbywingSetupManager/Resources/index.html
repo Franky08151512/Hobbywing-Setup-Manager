@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#172338"><title>Hobbywing Setup Manager</title>
+<style>
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172338;background:#f3f5f8}
+*{box-sizing:border-box}body{margin:0}header{background:#172338;color:#fff;padding:22px 18px}h1{font-size:23px;margin:0 0 5px}header p{margin:0;color:#cbd5e1;font-size:13px}.wrap{max-width:780px;margin:auto;padding:14px}.card{background:#fff;border:1px solid #e1e6ee;border-radius:15px;padding:15px;margin-bottom:13px}h2{font-size:17px;margin:0 0 12px}.muted,.small{color:#64748b;font-size:13px}.small{font-size:11px}input,select{font:inherit;max-width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:9px;margin-top:7px}input[type=file]{width:100%}label{display:block;margin:8px 0}button{border:0;border-radius:9px;padding:10px 12px;background:#1e40af;color:#fff;font-weight:650;margin:5px 4px 0 0}button.secondary{background:#e8edf5;color:#172338}button.danger{background:#fee2e2;color:#991b1b}.status{padding:10px;border-radius:9px;background:#f1f5f9;margin-top:10px;font-size:13px}.warn{background:#fff1dc;color:#8a4b08}.pill{display:inline-block;border-radius:99px;background:#e8f5ec;color:#176534;padding:4px 9px;font-size:12px}.row{display:flex;justify-content:space-between;align-items:center;gap:8px}.profile{padding:12px 0;border-bottom:1px solid #edf0f4}.profile:last-child{border:0}.profile strong{overflow-wrap:anywhere}table{width:100%;border-collapse:collapse;font-size:13px}td,th{text-align:left;padding:8px 5px;border-bottom:1px solid #edf0f4;vertical-align:top}.bad{color:#b91c1c}.good{color:#15803d}.hidden{display:none}footer{text-align:center;color:#64748b;font-size:12px;padding:8px 0 22px}
+</style></head>
+<body>
+<header><h1>Hobbywing Setup Manager</h1><p>Mini-Z · EZRUN MINI28 · Setups erkennen, vergleichen und sichern</p></header>
+<main class="wrap">
+<section class="card"><h2>1. TXT-Setup importieren</h2><label>Hobbywing-Exportdatei(en)<input id="files" type="file" accept=".txt,text/plain" multiple></label><div id="storage" class="status">Speicher wird geprüft …</div><div id="notice" class="status hidden"></div></section>
+<section class="card"><h2>2. Gespeicherte Profile</h2><div id="profiles"><p class="muted">Noch keine Profile importiert.</p></div><button id="backup" class="secondary">Backup exportieren</button><button id="restore" class="secondary">Backup importieren</button><input id="backupFile" class="hidden" type="file" accept=".json,application/json"></section>
+<section class="card"><h2>3. Automatische Profilzuordnung</h2><p class="muted">Nach einem Import werden passende Profile anhand von Gerät, Hardware, Firmware und allen Parameterwerten gesucht.</p><div id="matches" class="muted">Noch kein neuer Import.</div></section>
+<section class="card"><h2>4. Parameter vergleichen</h2><label>Profil A<select id="a"></select></label><label>Profil B<select id="b"></select></label><button id="compare">Vergleichen</button><div id="diff"></div></section>
+<footer>Lokale Profilverwaltung · Hobbywing Setup Manager</footer>
+</main>
+<script>
+(function(){
+"use strict";
+var $=function(id){return document.getElementById(id);};
+var profiles=[],lastImported=null,storageKey="hwsm_profiles_v1";
+function readSaved(){
+ try{var s=localStorage.getItem(storageKey);profiles=s?JSON.parse(s):[];if(!Array.isArray(profiles))profiles=[];$("storage").textContent="Speicherung über iOS-WebKit (lokal auf diesem Gerät). Bitte regelmäßig Backups exportieren.";}
+ catch(e){profiles=[];$("storage").textContent="Warnung: Browser-Speicher nicht verfügbar. Vor dem Schließen unbedingt Backup exportieren.";$("storage").className="status warn";}
+ render();
+}
+function persist(){
+ try{localStorage.setItem(storageKey,JSON.stringify(profiles));$("storage").textContent="Profile lokal gespeichert. Bitte zusätzlich regelmäßig ein Backup exportieren.";}
+ catch(e){$("storage").textContent="Speichern fehlgeschlagen. Bitte sofort ein Backup exportieren.";$("storage").className="status warn";}
+}
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+function parse(text,fileName){
+ var get=function(re){var m=text.match(re);return m&&m[1]?m[1].trim():"Unbekannt";};
+ var labels={},values={},m;
+ var name=get(/^name=(.*)$/m);if(name==="Unbekannt")name="Ohne internen Namen";
+ var device=get(/Device Type::\s*(.+)/),hw=get(/Hardware Version::\s*(.+)/),fw=get(/Firmware Version::\s*(.+)/);
+ var labelRe=/^\s*(\d+)\.\[([^\]]+)\]/gm;
+ while((m=labelRe.exec(text))!==null)labels[m[1]]=m[2].trim();
+ var valueRe=/^([0-9]+t?)=(.*)$/gm;
+ while((m=valueRe.exec(text))!==null)values[m[1]]=m[2].trim();
+ var id="p"+Date.now().toString(36)+Math.random().toString(36).slice(2);
+ return {id:id,fileName:fileName,name:name,device:device,hw:hw,fw:fw,labels:labels,values:values,originalText:text};
+}
+function same(a,b){return a.device===b.device&&a.hw===b.hw&&a.fw===b.fw;}
+function paramKeys(a,b){var all={};Object.keys(a.values||{}).concat(Object.keys(b.values||{})).forEach(function(k){all[k]=true;});return Object.keys(all).sort(function(x,y){return x.localeCompare(y,undefined,{numeric:true});});}
+function score(a,b){if(!same(a,b))return null;var ks=paramKeys(a,b);if(!ks.length)return 0;var n=ks.filter(function(k){return a.values[k]===b.values[k];}).length;return Math.round(100*n/ks.length);}
+function render(){
+ $("profiles").innerHTML=profiles.length?profiles.map(function(p){return '<div class="profile"><div class="row"><strong>'+esc(p.name)+'</strong><span class="pill">'+esc(p.device)+'</span></div><div class="small">'+esc(p.fileName)+' · '+esc(p.hw)+' · FW '+esc(p.fw)+'</div><button class="secondary" data-rename="'+esc(p.id)+'">Umbenennen</button><button class="secondary" data-export="'+esc(p.id)+'">TXT exportieren</button><button class="danger" data-delete="'+esc(p.id)+'">Löschen</button></div>';}).join(""):'<p class="muted">Noch keine Profile importiert.</p>';
+ var opts=profiles.map(function(p){return '<option value="'+esc(p.id)+'">'+esc(p.name)+' — '+esc(p.fileName)+'</option>';}).join("");
+ $("a").innerHTML=opts;$("b").innerHTML=opts;if(profiles.length>1)$("b").selectedIndex=1;
+}
+function download(data,name,type){
+ var blob=new Blob([data],{type:type}),url=URL.createObjectURL(blob),a=document.createElement("a");
+ a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1500);
+}
+$("profiles").addEventListener("click",function(e){
+ var id=e.target.getAttribute("data-rename")||e.target.getAttribute("data-delete")||e.target.getAttribute("data-export");if(!id)return;
+ var p=profiles.find(function(x){return x.id===id;});if(!p)return;
+ if(e.target.hasAttribute("data-rename")){var n=prompt("Profilname:",p.name);if(n&&n.trim()){p.name=n.trim();persist();render();}}
+ if(e.target.hasAttribute("data-delete")&&confirm("Profil lokal löschen?")){profiles=profiles.filter(function(x){return x.id!==id;});persist();render();}
+ if(e.target.hasAttribute("data-export"))download(p.originalText||"",p.fileName||"hobbywing.txt","text/plain");
+});
+$("files").addEventListener("change",function(e){
+ var fs=Array.from(e.target.files||[]);if(!fs.length)return;
+ Promise.all(fs.map(function(f){return f.text().then(function(t){return parse(t,f.name);});})).then(function(list){
+  var added=0;list.forEach(function(p){var exists=profiles.some(function(x){return x.fileName===p.fileName&&x.name===p.name&&JSON.stringify(x.values)===JSON.stringify(p.values);});if(!exists){profiles.push(p);added++;}});
+  lastImported=list[list.length-1];persist();render();$("notice").className="status";$("notice").textContent=list.length+" Datei(en) gelesen; "+added+" neue Profile hinzugefügt.";showMatches();
+ }).catch(function(err){$("notice").className="status warn";$("notice").textContent="Importfehler: "+err.message;});
+ e.target.value="";
+});
+function showMatches(){
+ if(!lastImported)return;var arr=profiles.filter(function(p){return p.id!==lastImported.id;}).map(function(p){return {p:p,s:score(lastImported,p)};}).filter(function(x){return x.s!==null;}).sort(function(x,y){return y.s-x.s;});
+ $("matches").innerHTML=arr.length?arr.slice(0,6).map(function(x){return '<div class="profile"><div class="row"><strong>'+esc(x.p.name)+'</strong><span class="pill">'+x.s+'% gleich</span></div><div class="small">'+esc(x.p.fileName)+' · '+(x.s===100?"Alle Werte identisch":"Parameter unterscheiden sich")+'</div></div>';}).join(""):"Kein kompatibles Profil mit gleicher Geräte-/Firmwarekennung gefunden.";
+}
+$("compare").addEventListener("click",function(){
+ var a=profiles.find(function(p){return p.id===$("a").value;}),b=profiles.find(function(p){return p.id===$("b").value;});
+ if(!a||!b||a.id===b.id){$("diff").textContent="Bitte zwei unterschiedliche Profile auswählen.";return;}
+ if(!same(a,b)){$("diff").textContent="Nicht direkt vergleichbar: Gerätetyp, Hardware oder Firmware sind unterschiedlich.";return;}
+ var ks=paramKeys(a,b),ds=ks.filter(function(k){return a.values[k]!==b.values[k];});
+ var rows=ds.map(function(k){return "<tr><td>"+esc(a.labels[k]||b.labels[k]||("Parameter "+k))+'<div class="small">ID '+esc(k)+'</div></td><td class="bad">'+esc(a.values[k]===undefined?"—":a.values[k])+'</td><td class="bad">'+esc(b.values[k]===undefined?"—":b.values[k])+"</td></tr>";}).join("");
+ $("diff").innerHTML='<div class="status">'+ds.length+" unterschiedliche Werte von "+ks.length+" erkannten Parametern.</div>"+(ds.length?'<div style="overflow-x:auto"><table><thead><tr><th>Parameter</th><th>'+esc(a.name)+'</th><th>'+esc(b.name)+'</th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<p class="good">Alle Parameterwerte sind identisch.</p>');
+});
+$("backup").addEventListener("click",function(){download(JSON.stringify({format:"HobbywingSetupManagerBackup",version:1,profiles:profiles},null,2),"Hobbywing_Setup_Backup.json","application/json");});
+$("restore").addEventListener("click",function(){$("backupFile").click();});
+$("backupFile").addEventListener("change",function(e){
+ var f=e.target.files[0];if(!f)return;f.text().then(function(t){var d=JSON.parse(t);if(d.format!=="HobbywingSetupManagerBackup"||!Array.isArray(d.profiles))throw new Error("Ungültiges Backup");var count=0;d.profiles.forEach(function(p){if(!profiles.some(function(x){return x.fileName===p.fileName&&x.name===p.name&&JSON.stringify(x.values)===JSON.stringify(p.values);})){profiles.push(p);count++;}});persist();render();alert(count+" Profile wiederhergestellt.");}).catch(function(err){alert("Backup-Import fehlgeschlagen: "+err.message);});e.target.value="";
+});
+readSaved();
+})();
+</script></body></html>
