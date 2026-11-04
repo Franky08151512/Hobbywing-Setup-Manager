@@ -1,0 +1,22 @@
+name: HobbywingSetupManager
+options:
+  bundleIdPrefix: at.hobbywing
+  deploymentTarget:
+    iOS: "16.0"
+targets:
+  HobbywingSetupManager:
+    type: application
+    platform: iOS
+    sources:
+      - path: HobbywingSetupManager
+        type: group
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: at.hobbywing.setupmanager
+        PRODUCT_NAME: HobbywingSetupManager
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_KEY_CFBundleDisplayName: Hobbywing Setup Manager
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGNING_ALLOWED: NO
