@@ -31,17 +31,50 @@ function persist(){
  catch(e){$("storage").textContent="Speichern fehlgeschlagen. Bitte sofort ein Backup exportieren.";$("storage").className="status warn";}
 }
 function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+function parseSettingInfo(text){
+ var labels={},options={},current=null;
+ var lines=String(text||"").split(/\r\n|\n|\r/);
+ lines.forEach(function(line){
+  var heading=line.match(/^\s*(\d+)\.\[([^\]]+)\]\s*$/);
+  if(heading){
+   current=heading[1];labels[current]=heading[2].trim();options[current]=[];
+   return;
+  }
+  if(/^\s*\[CAR_ESC\b/.test(line)){current=null;return;}
+  if(current&&line.trim()){
+   line.trim().split(/\s{2,}/).forEach(function(cell){
+    var choice=cell.replace(/\(\*\)|\(\+\)/g,"").trim();
+    if(choice)options[current].push(choice);
+   });
+  }
+ });
+ return {labels:labels,options:options};
+}
 function parse(text,fileName){
  var get=function(re){var m=text.match(re);return m&&m[1]?m[1].trim():"Unbekannt";};
- var labels={},values={},m;
+ var values={},m,settingInfo=parseSettingInfo(text);
  var name=get(/^name=(.*)$/m);if(name==="Unbekannt")name="Ohne internen Namen";
  var device=get(/Device Type::\s*(.+)/),hw=get(/Hardware Version::\s*(.+)/),fw=get(/Firmware Version::\s*(.+)/);
- var labelRe=/^\s*(\d+)\.\[([^\]]+)\]/gm;
- while((m=labelRe.exec(text))!==null)labels[m[1]]=m[2].trim();
  var valueRe=/^([0-9]+t?)=(.*)$/gm;
  while((m=valueRe.exec(text))!==null){if(m[1]!=="12t"&&m[1]!=="18t")values[m[1]]=m[2].trim();}
  var id="p"+Date.now().toString(36)+Math.random().toString(36).slice(2);
- return {id:id,fileName:fileName,name:name,device:device,hw:hw,fw:fw,labels:labels,values:values,originalText:text};
+ return {id:id,fileName:fileName,name:name,device:device,hw:hw,fw:fw,labels:settingInfo.labels,options:settingInfo.options,values:values,originalText:text};
+}
+function profileSettingInfo(p){
+ if(p.options&&Object.keys(p.options).length)return {labels:p.labels||{},options:p.options};
+ return parseSettingInfo(p.originalText||"");
+}
+function displayParameterValue(p,key){
+ var raw=(p.values||{})[key];
+ if(raw===undefined)return "—";
+ if(key.slice(-1)==="t")return raw;
+ var info=profileSettingInfo(p),choices=info.options[key],index=Number(raw);
+ if(choices&&Number.isInteger(index)&&index>=1&&index<=choices.length)return choices[index-1];
+ return raw;
+}
+function parameterCell(p,key){
+ var raw=(p.values||{})[key],shown=displayParameterValue(p,key);
+ return '<div>'+esc(shown)+'</div>'+(shown!==String(raw)?'<div class="small">TXT-Code '+esc(raw)+'</div>':'');
 }
 function same(a,b){return a.device===b.device&&a.hw===b.hw&&a.fw===b.fw;}
 function paramKeys(a,b){var all={};Object.keys(a.values||{}).concat(Object.keys(b.values||{})).forEach(function(k){if(k!=="12t"&&k!=="18t")all[k]=true;});return Object.keys(all).sort(function(x,y){return x.localeCompare(y,undefined,{numeric:true});});}
@@ -96,7 +129,8 @@ $("compare").addEventListener("click",function(){
  if(!a||!b||a.id===b.id){$("diff").textContent="Bitte zwei unterschiedliche Profile auswählen.";return;}
  if(!same(a,b)){$("diff").textContent="Nicht direkt vergleichbar: Gerätetyp, Hardware oder Firmware sind unterschiedlich.";return;}
  var ks=paramKeys(a,b),ds=ks.filter(function(k){return a.values[k]!==b.values[k];});
- var rows=ds.map(function(k){return "<tr><td>"+esc(a.labels[k]||b.labels[k]||("Parameter "+k))+'<div class="small">ID '+esc(k)+'</div></td><td class="bad">'+esc(a.values[k]===undefined?"—":a.values[k])+'</td><td class="bad">'+esc(b.values[k]===undefined?"—":b.values[k])+"</td></tr>";}).join("");
+ var infoA=profileSettingInfo(a),infoB=profileSettingInfo(b);
+ var rows=ds.map(function(k){return "<tr><td>"+esc(infoA.labels[k]||infoB.labels[k]||a.labels?.[k]||b.labels?.[k]||("Parameter "+k))+'<div class="small">ID '+esc(k)+'</div></td><td class="bad">'+parameterCell(a,k)+'</td><td class="bad">'+parameterCell(b,k)+"</td></tr>";}).join("");
  $("diff").innerHTML='<div class="status">'+ds.length+" unterschiedliche Werte von "+ks.length+" erkannten Parametern.</div>"+(ds.length?'<div style="overflow-x:auto"><table><thead><tr><th>Parameter</th><th>'+esc(a.name)+'</th><th>'+esc(b.name)+'</th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<p class="good">Alle Parameterwerte sind identisch.</p>');
 });
 $("backup").addEventListener("click",function(){download(JSON.stringify({format:"HobbywingSetupManagerBackup",version:1,profiles:profiles},null,2),"Hobbywing_Setup_Backup.json","application/json");});
