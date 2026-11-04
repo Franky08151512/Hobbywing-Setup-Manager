@@ -8,12 +8,9 @@ targets:
     type: application
     platform: iOS
     sources:
-      - path: HobbywingSetupManager
-        type: group
-        excludes:
-          - Resources
-    resources:
-      - path: HobbywingSetupManager/Resources
+      - path: HobbywingSetupManager/HobbywingSetupManagerApp.swift
+      - path: HobbywingSetupManager/Resources/index.html
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: at.hobbywing.setupmanager
