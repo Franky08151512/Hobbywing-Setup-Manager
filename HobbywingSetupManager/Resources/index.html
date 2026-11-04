@@ -94,7 +94,7 @@ function profileText(p){
  return "name="+profileName+lineEnding+raw;
 }
 function hwLinkBaseName(p){
- var base=String(p.name||p.fileName||"Hobbywing Setup").replace(/\.txt$/i,"").replace(/[\/\\:*?"<>|]+/g,"_").trim();
+ var base=String(p.fileName||p.name||"Hobbywing Setup").replace(/\.txt$/i,"").replace(/[\/\\:*?"<>|]+/g,"_").trim();
  return base||"Hobbywing Setup";
 }
 function toBase64Utf8(value){
