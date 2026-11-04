@@ -11,7 +11,7 @@
 <header><h1>Hobbywing Setup Manager</h1><p>Mini-Z · EZRUN MINI28 · Setups erkennen, vergleichen und sichern</p></header>
 <main class="wrap">
 <section class="card"><h2>1. TXT-Setup importieren</h2><label>Hobbywing-Exportdatei(en)<input id="files" type="file" accept=".txt,text/plain" multiple></label><div id="storage" class="status">Speicher wird geprüft …</div><div id="notice" class="status hidden"></div></section>
-<section class="card"><h2>2. Gespeicherte Profile</h2><div id="profiles"><p class="muted">Noch keine Profile importiert.</p></div><button id="backup" class="secondary">Backup exportieren</button><button id="restore" class="secondary">Backup importieren</button><input id="backupFile" class="hidden" type="file" accept=".json,application/json"></section>
+<section class="card"><h2>2. Gespeicherte Profile</h2><div id="profiles"><p class="muted">Noch keine Profile importiert.</p></div><button id="backup" class="secondary">Backup exportieren</button><button id="restore" class="secondary">Backup importieren</button><input id="backupFile" class="hidden" type="file" accept=".json,application/json"><button id="importHwDb" class="secondary">HW-Link-Datenbank auswählen / aktualisieren</button><p class="small">Einmalig die MyNameTxt.sqlite aus dem Ordner „HW Link V2“ auswählen. Der Originaldatei wird nichts angetan.</p></section>
 <section class="card"><h2>3. Automatische Profilzuordnung</h2><p class="muted">Nach einem Import werden passende Profile anhand von Gerät, Hardware, Firmware und allen Parameterwerten gesucht.</p><div id="matches" class="muted">Noch kein neuer Import.</div></section>
 <section class="card"><h2>4. Parameter vergleichen</h2><label>Profil A<select id="a"></select></label><label>Profil B<select id="b"></select></label><button id="compare">Vergleichen</button><div id="diff"></div></section>
 <footer>Lokale Profilverwaltung · Hobbywing Setup Manager</footer>
@@ -103,33 +103,37 @@ function toBase64Utf8(value){
  return btoa(binary);
 }
 function exportHwLinkPair(p){
- // Mirror the companion JSON structure supplied with the user's HW Link V2 export.
- // Its curve arrays were all empty in that reference file, so keep them empty here too.
- var json={
-  "throttleDriveFrequencyPoints":[],
-  "brakeDriveFrequency128DataArray":[],
-  "brakeDriveFrequencyPoints":[],
-  "oldThrottlePoints":[],
-  "oldBrakePoints":[],
-  "brakeCurve256DataArray":[],
-  "brakeCurvePoints":[],
-  "throttleCurve256DataArray":[],
-  "throttleCurvePoints":[],
-  "throttleDriveFrequency128DataArray":[]
- };
+ // The HW Link profile index is a separate SQLite file. Native iOS adds the
+ // selected profile name to a safe working copy and returns it with TXT + JSON.
  var base=hwLinkBaseName(p);
  var files=[
   {name:base+".txt",type:"text/plain",data:profileText(p)},
-  {name:base+".json",type:"application/json",data:JSON.stringify(json,null,2)}
+  {name:base+".json",type:"application/json",data:JSON.stringify({
+   "throttleDriveFrequencyPoints":[],
+   "brakeDriveFrequency128DataArray":[],
+   "brakeDriveFrequencyPoints":[],
+   "oldThrottlePoints":[],
+   "oldBrakePoints":[],
+   "brakeCurve256DataArray":[],
+   "brakeCurvePoints":[],
+   "throttleCurve256DataArray":[],
+   "throttleCurvePoints":[],
+   "throttleDriveFrequency128DataArray":[]
+  },null,2)}
  ];
  if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.exportFile){
-  window.webkit.messageHandlers.exportFile.postMessage({files:files.map(function(f){
-   return {name:f.name,type:f.type,base64:toBase64Utf8(f.data)};
-  })});
+  window.webkit.messageHandlers.exportFile.postMessage({
+   files:files.map(function(f){return {name:f.name,type:f.type,base64:toBase64Utf8(f.data)};}),
+   hwLinkDatabase:{
+    profileName:base,
+    deviceKey:[p.device,p.hw,p.fw].join(" ").trim()
+   }
+  });
   return;
  }
- files.forEach(function(f){download(f.data,f.name,f.type);});
+ alert("Der HW Link V2 Export mit Datenbankeintrag ist nur in der iPhone-App verfügbar.");
 }
+
 function download(data,name,type){
  if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.exportFile){
   var bytes=new TextEncoder().encode(String(data)),binary="";
@@ -170,6 +174,13 @@ $("compare").addEventListener("click",function(){
  var infoA=profileSettingInfo(a),infoB=profileSettingInfo(b);
  var rows=ds.map(function(k){return "<tr><td>"+esc(infoA.labels[k]||infoB.labels[k]||a.labels?.[k]||b.labels?.[k]||("Parameter "+k))+'<div class="small">ID '+esc(k)+'</div></td><td class="bad">'+parameterCell(a,k)+'</td><td class="bad">'+parameterCell(b,k)+"</td></tr>";}).join("");
  $("diff").innerHTML='<div class="status">'+ds.length+" unterschiedliche Werte von "+ks.length+" erkannten Parametern.</div>"+(ds.length?'<div style="overflow-x:auto"><table><thead><tr><th>Parameter</th><th>'+esc(a.name)+'</th><th>'+esc(b.name)+'</th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<p class="good">Alle Parameterwerte sind identisch.</p>');
+});
+$("importHwDb").addEventListener("click",function(){
+ if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.importDatabase){
+  window.webkit.messageHandlers.importDatabase.postMessage({});
+ }else{
+  alert("Bitte diese Funktion in der installierten iPhone-App verwenden.");
+ }
 });
 $("backup").addEventListener("click",function(){download(JSON.stringify({format:"HobbywingSetupManagerBackup",version:1,profiles:profiles},null,2),"Hobbywing_Setup_Backup.json","application/json");});
 $("restore").addEventListener("click",function(){$("backupFile").click();});
