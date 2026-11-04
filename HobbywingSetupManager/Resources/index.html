@@ -52,6 +52,14 @@ function render(){
  $("a").innerHTML=opts;$("b").innerHTML=opts;if(profiles.length>1)$("b").selectedIndex=1;
 }
 function download(data,name,type){
+ if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.exportFile){
+  var bytes=new TextEncoder().encode(String(data)),binary="";
+  for(var i=0;i<bytes.length;i++)binary+=String.fromCharCode(bytes[i]);
+  window.webkit.messageHandlers.exportFile.postMessage({
+   name:String(name),type:String(type||"application/octet-stream"),base64:btoa(binary)
+  });
+  return;
+ }
  var blob=new Blob([data],{type:type}),url=URL.createObjectURL(blob),a=document.createElement("a");
  a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url);},1500);
 }
