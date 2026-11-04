@@ -53,10 +53,11 @@ function render(){
 }
 function profileText(p){
  var raw=String(p.originalText||"");
- var profileName=String(p.name||"Unbenannt").replace(/[\\r\\n]+/g," ").trim()||"Unbenannt";
- var nameLine=/^name=.*$/m;
+ var cr=String.fromCharCode(13),lf=String.fromCharCode(10),crlf=cr+lf;
+ var profileName=String(p.name||"Unbenannt").split(cr).join(" ").split(lf).join(" ").trim()||"Unbenannt";
+ var nameLine=new RegExp("^name=.*$","m");
  if(nameLine.test(raw))return raw.replace(nameLine,"name="+profileName);
- var lineEnding=raw.indexOf("\\r\\n")!==-1?"\\r\\n":"\\n";
+ var lineEnding=raw.indexOf(crlf)!==-1?crlf:lf;
  return "name="+profileName+lineEnding+raw;
 }
 function download(data,name,type){
