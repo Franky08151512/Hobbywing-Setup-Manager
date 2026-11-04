@@ -50,6 +50,9 @@ struct LocalWebView: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKUIDelegate, WKScriptMessageHandler, UIDocumentPickerDelegate {
         weak var webView: WKWebView?
+        private var pendingExportFiles: [URL] = []
+        private var pendingExportTemporaryFolder: URL?
+        private var isPickingExportFolder = false
 
         private func topViewController() -> UIViewController? {
             var controller = webView?.window?.rootViewController
@@ -175,6 +178,7 @@ struct LocalWebView: UIViewRepresentable {
         }
 
         private func presentDatabasePicker() {
+            isPickingExportFolder = false
             DispatchQueue.main.async {
                 guard let presenter = self.topViewController() else {
                     self.showExportError("Der Dateiauswahldialog konnte nicht geöffnet werden.")
@@ -196,6 +200,12 @@ struct LocalWebView: UIViewRepresentable {
             didPickDocumentsAt urls: [URL]
         ) {
             guard let sourceURL = urls.first else { return }
+
+            if isPickingExportFolder {
+                isPickingExportFolder = false
+                savePendingHWLinkExport(to: sourceURL)
+                return
+            }
             let accessed = sourceURL.startAccessingSecurityScopedResource()
             defer {
                 if accessed { sourceURL.stopAccessingSecurityScopedResource() }
@@ -218,7 +228,7 @@ struct LocalWebView: UIViewRepresentable {
                 try FileManager.default.moveItem(at: stagedURL, to: storedDatabaseURL)
                 showImportDatabaseSuccess()
             } catch {
-                showExportError("Die ausgewählte Datei ist keine lesbare HW-Link-Datenbank oder konnte nicht kopiert werden: \\(error.localizedDescription)")
+                showExportError("Die ausgewählte Datei ist keine lesbare HW-Link-Datenbank oder konnte nicht kopiert werden: \(error.localizedDescription)")
             }
         }
 
@@ -381,6 +391,17 @@ struct LocalWebView: UIViewRepresentable {
         }
 
         private func presentShareSheet(for fileURLs: [URL], temporaryFolder: URL) {
+            let containsHWLinkDatabase = fileURLs.contains {
+                $0.lastPathComponent.caseInsensitiveCompare("MyNameTxt.sqlite") == .orderedSame
+            }
+
+            if containsHWLinkDatabase {
+                pendingExportFiles = fileURLs
+                pendingExportTemporaryFolder = temporaryFolder
+                presentHWLinkDestinationPicker()
+                return
+            }
+
             DispatchQueue.main.async {
                 guard let presenter = self.topViewController() else {
                     self.showExportError("Das iOS-Teilen-Menü konnte nicht geöffnet werden.")
@@ -411,11 +432,96 @@ struct LocalWebView: UIViewRepresentable {
             }
         }
 
-        private func showExportError(_ message: String) {
+        // For HW Link exports, let the user select the destination folder itself.
+        // Writing directly to that folder replaces the fixed MyNameTxt.sqlite name
+        // instead of creating "MyNameTxt.sqlite 2", "MyNameTxt.sqlite 3", etc.
+        private func presentHWLinkDestinationPicker() {
+            DispatchQueue.main.async {
+                guard let presenter = self.topViewController() else {
+                    self.cleanupPendingHWLinkExport()
+                    self.showExportError("Der HW-Link-Zielordner konnte nicht ausgewählt werden.")
+                    return
+                }
+
+                self.isPickingExportFolder = true
+                let picker = UIDocumentPickerViewController(
+                    forOpeningContentTypes: [.folder],
+                    asCopy: false
+                )
+                picker.delegate = self
+                picker.allowsMultipleSelection = false
+                presenter.present(picker, animated: true)
+            }
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            if isPickingExportFolder {
+                isPickingExportFolder = false
+                cleanupPendingHWLinkExport()
+            }
+        }
+
+        private func savePendingHWLinkExport(to folderURL: URL) {
+            let accessed = folderURL.startAccessingSecurityScopedResource()
+            defer {
+                if accessed { folderURL.stopAccessingSecurityScopedResource() }
+            }
+
+            do {
+                var writtenNames: [String] = []
+                for sourceURL in pendingExportFiles {
+                    let destinationURL = folderURL.appendingPathComponent(sourceURL.lastPathComponent)
+                    let data = try Data(contentsOf: sourceURL)
+                    try coordinatedWrite(data, to: destinationURL)
+                    writtenNames.append(sourceURL.lastPathComponent)
+                }
+
+                cleanupPendingHWLinkExport()
+                showHWLinkExportSuccess(folderURL: folderURL, fileNames: writtenNames)
+            } catch {
+                cleanupPendingHWLinkExport()
+                showExportError("Der Export in den HW-Link-Ordner ist fehlgeschlagen: \(error.localizedDescription)")
+            }
+        }
+
+        private func coordinatedWrite(_ data: Data, to destinationURL: URL) throws {
+            let coordinator = NSFileCoordinator(filePresenter: nil)
+            var coordinationError: NSError?
+            var writeError: Error?
+
+            let options: NSFileCoordinator.WritingOptions =
+                FileManager.default.fileExists(atPath: destinationURL.path) ? .forReplacing : []
+
+            coordinator.coordinate(
+                writingItemAt: destinationURL,
+                options: options,
+                error: &coordinationError
+            ) { coordinatedURL in
+                do {
+                    try data.write(to: coordinatedURL, options: .atomic)
+                } catch {
+                    writeError = error
+                }
+            }
+
+            if let coordinationError { throw coordinationError }
+            if let writeError { throw writeError }
+        }
+
+        private func cleanupPendingHWLinkExport() {
+            if let folder = pendingExportTemporaryFolder {
+                try? FileManager.default.removeItem(at: folder)
+            }
+            pendingExportFiles = []
+            pendingExportTemporaryFolder = nil
+        }
+
+        private func showHWLinkExportSuccess(folderURL: URL, fileNames: [String]) {
             DispatchQueue.main.async {
                 guard let presenter = self.topViewController() else { return }
+                let message = "Die Dateien wurden direkt im gewählten Ordner gespeichert. Eine vorhandene MyNameTxt.sqlite wurde unter demselben Namen ersetzt – es wird keine Datei mit dem Zusatz „2“ angelegt.\n\n" + fileNames.joined(separator: "\n")
                 let alert = UIAlertController(
-                    title: "Export fehlgeschlagen",
+                    title: "HW-Link-Export abgeschlossen",
                     message: message,
                     preferredStyle: .alert
                 )
@@ -424,85 +530,5 @@ struct LocalWebView: UIViewRepresentable {
             }
         }
 
-        // JavaScript alert(), used for import/backup messages.
-        func webView(
-            _ webView: WKWebView,
-            runJavaScriptAlertPanelWithMessage message: String,
-            initiatedByFrame frame: WKFrameInfo,
-            completionHandler: @escaping () -> Void
-        ) {
-            guard let presenter = topViewController() else {
-                completionHandler()
-                return
-            }
-
-            let alert = UIAlertController(
-                title: "Hobbywing Setup Manager",
-                message: message,
-                preferredStyle: .alert
-            )
-            alert.addAction(UIAlertAction(title: "OK", style: .default) { _ in
-                completionHandler()
-            })
-            presenter.present(alert, animated: true)
-        }
-
-        // JavaScript confirm(), used before deleting a saved profile.
-        func webView(
-            _ webView: WKWebView,
-            runJavaScriptConfirmPanelWithMessage message: String,
-            initiatedByFrame frame: WKFrameInfo,
-            completionHandler: @escaping (Bool) -> Void
-        ) {
-            guard let presenter = topViewController() else {
-                completionHandler(false)
-                return
-            }
-
-            let alert = UIAlertController(
-                title: "Hobbywing Setup Manager",
-                message: message,
-                preferredStyle: .alert
-            )
-            alert.addAction(UIAlertAction(title: "Abbrechen", style: .cancel) { _ in
-                completionHandler(false)
-            })
-            alert.addAction(UIAlertAction(title: "Löschen", style: .destructive) { _ in
-                completionHandler(true)
-            })
-            presenter.present(alert, animated: true)
-        }
-
-        // JavaScript prompt(), used when renaming a profile.
-        func webView(
-            _ webView: WKWebView,
-            runJavaScriptTextInputPanelWithPrompt prompt: String,
-            defaultText: String?,
-            initiatedByFrame frame: WKFrameInfo,
-            completionHandler: @escaping (String?) -> Void
-        ) {
-            guard let presenter = topViewController() else {
-                completionHandler(nil)
-                return
-            }
-
-            let alert = UIAlertController(
-                title: "Profil umbenennen",
-                message: prompt,
-                preferredStyle: .alert
-            )
-            alert.addTextField { textField in
-                textField.text = defaultText
-                textField.clearButtonMode = .whileEditing
-                textField.autocapitalizationType = .sentences
-            }
-            alert.addAction(UIAlertAction(title: "Abbrechen", style: .cancel) { _ in
-                completionHandler(nil)
-            })
-            alert.addAction(UIAlertAction(title: "Speichern", style: .default) { _ in
-                completionHandler(alert.textFields?.first?.text)
-            })
-            presenter.present(alert, animated: true)
-        }
     }
 }
