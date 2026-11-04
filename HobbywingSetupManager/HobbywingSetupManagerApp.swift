@@ -26,6 +26,7 @@ struct LocalWebView: UIViewRepresentable {
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
+        configuration.userContentController.add(context.coordinator, name: "exportFile")
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.scrollView.contentInsetAdjustmentBehavior = .never
@@ -44,7 +45,7 @@ struct LocalWebView: UIViewRepresentable {
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 
-    final class Coordinator: NSObject, WKUIDelegate {
+    final class Coordinator: NSObject, WKUIDelegate, WKScriptMessageHandler {
         weak var webView: WKWebView?
 
         private func topViewController() -> UIViewController? {
@@ -53,6 +54,88 @@ struct LocalWebView: UIViewRepresentable {
                 controller = presented
             }
             return controller
+        }
+
+        // JavaScript sends TXT and JSON file contents to this native iOS bridge.
+        func userContentController(
+            _ userContentController: WKUserContentController,
+            didReceive message: WKScriptMessage
+        ) {
+            guard message.name == "exportFile",
+                  let payload = message.body as? [String: Any],
+                  let rawName = payload["name"] as? String,
+                  let base64 = payload["base64"] as? String,
+                  let data = Data(base64Encoded: base64, options: .ignoreUnknownCharacters),
+                  !data.isEmpty else {
+                showExportError("Die Exportdatei konnte nicht vorbereitet werden.")
+                return
+            }
+
+            let safeName = URL(fileURLWithPath: rawName).lastPathComponent
+            guard !safeName.isEmpty, safeName != ".", safeName != "/" else {
+                showExportError("Der Dateiname ist ungültig.")
+                return
+            }
+
+            let folderURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("HobbywingExport-\(UUID().uuidString)", isDirectory: true)
+            let fileURL = folderURL.appendingPathComponent(safeName)
+
+            do {
+                try FileManager.default.createDirectory(
+                    at: folderURL,
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: fileURL, options: .atomic)
+                presentShareSheet(for: fileURL, temporaryFolder: folderURL)
+            } catch {
+                try? FileManager.default.removeItem(at: folderURL)
+                showExportError("Die Datei konnte nicht gespeichert werden: \(error.localizedDescription)")
+            }
+        }
+
+        private func presentShareSheet(for fileURL: URL, temporaryFolder: URL) {
+            DispatchQueue.main.async {
+                guard let presenter = self.topViewController() else {
+                    self.showExportError("Das iOS-Teilen-Menü konnte nicht geöffnet werden.")
+                    return
+                }
+
+                let activity = UIActivityViewController(
+                    activityItems: [fileURL],
+                    applicationActivities: nil
+                )
+
+                activity.completionWithItemsHandler = { _, _, _, _ in
+                    try? FileManager.default.removeItem(at: temporaryFolder)
+                }
+
+                if let popover = activity.popoverPresentationController {
+                    popover.sourceView = presenter.view
+                    popover.sourceRect = CGRect(
+                        x: presenter.view.bounds.midX,
+                        y: presenter.view.bounds.midY,
+                        width: 1,
+                        height: 1
+                    )
+                    popover.permittedArrowDirections = []
+                }
+
+                presenter.present(activity, animated: true)
+            }
+        }
+
+        private func showExportError(_ message: String) {
+            DispatchQueue.main.async {
+                guard let presenter = self.topViewController() else { return }
+                let alert = UIAlertController(
+                    title: "Export fehlgeschlagen",
+                    message: message,
+                    preferredStyle: .alert
+                )
+                alert.addAction(UIAlertAction(title: "OK", style: .default))
+                presenter.present(alert, animated: true)
+            }
         }
 
         // JavaScript alert(), used for import/backup messages.
