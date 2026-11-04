@@ -51,6 +51,14 @@ function render(){
  var opts=profiles.map(function(p){return '<option value="'+esc(p.id)+'">'+esc(p.name)+' — '+esc(p.fileName)+'</option>';}).join("");
  $("a").innerHTML=opts;$("b").innerHTML=opts;if(profiles.length>1)$("b").selectedIndex=1;
 }
+function profileText(p){
+ var raw=String(p.originalText||"");
+ var profileName=String(p.name||"Unbenannt").replace(/[\\r\\n]+/g," ").trim()||"Unbenannt";
+ var nameLine=/^name=.*$/m;
+ if(nameLine.test(raw))return raw.replace(nameLine,"name="+profileName);
+ var lineEnding=raw.indexOf("\\r\\n")!==-1?"\\r\\n":"\\n";
+ return "name="+profileName+lineEnding+raw;
+}
 function download(data,name,type){
  if(window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.exportFile){
   var bytes=new TextEncoder().encode(String(data)),binary="";
@@ -68,7 +76,7 @@ $("profiles").addEventListener("click",function(e){
  var p=profiles.find(function(x){return x.id===id;});if(!p)return;
  if(e.target.hasAttribute("data-rename")){var n=prompt("Profilname:",p.name);if(n&&n.trim()){p.name=n.trim();persist();render();}}
  if(e.target.hasAttribute("data-delete")&&confirm("Profil lokal löschen?")){profiles=profiles.filter(function(x){return x.id!==id;});persist();render();}
- if(e.target.hasAttribute("data-export"))download(p.originalText||"",p.fileName||"hobbywing.txt","text/plain");
+ if(e.target.hasAttribute("data-export"))download(profileText(p),p.fileName||"hobbywing.txt","text/plain");
 });
 $("files").addEventListener("change",function(e){
  var fs=Array.from(e.target.files||[]);if(!fs.length)return;
