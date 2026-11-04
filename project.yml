@@ -22,5 +22,6 @@ targets:
         TARGETED_DEVICE_FAMILY: "1,2"
         INFOPLIST_KEY_CFBundleDisplayName: Hobbywing Setup Manager
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        GENERATE_INFOPLIST_FILE: YES
         CODE_SIGN_STYLE: Manual
         CODE_SIGNING_ALLOWED: NO
