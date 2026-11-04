@@ -10,6 +10,10 @@ targets:
     sources:
       - path: HobbywingSetupManager
         type: group
+        excludes:
+          - Resources
+    resources:
+      - path: HobbywingSetupManager/Resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: at.hobbywing.setupmanager
