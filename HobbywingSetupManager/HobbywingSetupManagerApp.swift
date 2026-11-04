@@ -103,7 +103,7 @@ struct LocalWebView: UIViewRepresentable {
             }
 
             let folderURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("HobbywingExport-\\(UUID().uuidString)", isDirectory: true)
+                .appendingPathComponent("HobbywingExport-\(UUID().uuidString)", isDirectory: true)
 
             do {
                 try FileManager.default.createDirectory(
@@ -119,7 +119,7 @@ struct LocalWebView: UIViewRepresentable {
                 presentShareSheet(for: fileURLs, temporaryFolder: folderURL)
             } catch {
                 try? FileManager.default.removeItem(at: folderURL)
-                showExportError("Die Exportdateien konnten nicht gespeichert werden: \\(error.localizedDescription)")
+                showExportError("Die Exportdateien konnten nicht gespeichert werden: \(error.localizedDescription)")
             }
         }
 
