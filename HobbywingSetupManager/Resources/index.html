@@ -39,12 +39,12 @@ function parse(text,fileName){
  var labelRe=/^\s*(\d+)\.\[([^\]]+)\]/gm;
  while((m=labelRe.exec(text))!==null)labels[m[1]]=m[2].trim();
  var valueRe=/^([0-9]+t?)=(.*)$/gm;
- while((m=valueRe.exec(text))!==null)values[m[1]]=m[2].trim();
+ while((m=valueRe.exec(text))!==null){if(m[1]!=="12t"&&m[1]!=="18t")values[m[1]]=m[2].trim();}
  var id="p"+Date.now().toString(36)+Math.random().toString(36).slice(2);
  return {id:id,fileName:fileName,name:name,device:device,hw:hw,fw:fw,labels:labels,values:values,originalText:text};
 }
 function same(a,b){return a.device===b.device&&a.hw===b.hw&&a.fw===b.fw;}
-function paramKeys(a,b){var all={};Object.keys(a.values||{}).concat(Object.keys(b.values||{})).forEach(function(k){all[k]=true;});return Object.keys(all).sort(function(x,y){return x.localeCompare(y,undefined,{numeric:true});});}
+function paramKeys(a,b){var all={};Object.keys(a.values||{}).concat(Object.keys(b.values||{})).forEach(function(k){if(k!=="12t"&&k!=="18t")all[k]=true;});return Object.keys(all).sort(function(x,y){return x.localeCompare(y,undefined,{numeric:true});});}
 function score(a,b){if(!same(a,b))return null;var ks=paramKeys(a,b);if(!ks.length)return 0;var n=ks.filter(function(k){return a.values[k]===b.values[k];}).length;return Math.round(100*n/ks.length);}
 function render(){
  $("profiles").innerHTML=profiles.length?profiles.map(function(p){return '<div class="profile"><div class="row"><strong>'+esc(p.name)+'</strong><span class="pill">'+esc(p.device)+'</span></div><div class="small">'+esc(p.fileName)+' · '+esc(p.hw)+' · FW '+esc(p.fw)+'</div><button class="secondary" data-rename="'+esc(p.id)+'">Umbenennen</button><button class="secondary" data-export="'+esc(p.id)+'">TXT exportieren</button><button class="danger" data-delete="'+esc(p.id)+'">Löschen</button></div>';}).join(""):'<p class="muted">Noch keine Profile importiert.</p>';
